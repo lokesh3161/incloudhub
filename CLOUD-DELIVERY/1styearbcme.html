@@ -174,23 +174,13 @@
 
 </div>
 
+<script src="notes-client.js"></script>
 <script>
 window.onload = function() {
     var brs = document.getElementsByTagName('br');
     for (var i = brs.length - 1; i >= 0; i--) { brs[i].parentNode.removeChild(brs[i]); }
     loadDynamicNotes('1styearbcme');
 };
-function loadDynamicNotes(subject) {
-    const notes = JSON.parse(localStorage.getItem('incloud_notes') || '[]');
-    const filtered = notes.filter(n => n.subject === subject);
-    if (filtered.length === 0) return;
-    const ul = document.querySelector('ul');
-    filtered.forEach(n => {
-        const li = document.createElement('li');
-        li.innerHTML = `<a class="note-link" href="${n.link}" target="_blank">${n.icon || '📄'} ${n.title}${n.unit ? ' – ' + n.unit : ''}</a>`;
-        ul.appendChild(li);
-    });
-}
 </script>
 
 </body>

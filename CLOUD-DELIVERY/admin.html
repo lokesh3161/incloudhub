@@ -426,7 +426,7 @@
         }
     }
 
-    function adminLogin() {
+    async function adminLogin() {
         const user = document.getElementById('admin-user').value.trim().toLowerCase();
         const pass = document.getElementById('admin-pass').value.trim();
         if (USERS[user] && pass === PASS) {
@@ -436,8 +436,8 @@
             document.getElementById('login-screen').style.display = 'none';
             document.getElementById('admin-panel').style.display = 'block';
             applyUserRestrictions(user);
-            renderNotes();
-            updateStats();
+            await renderNotes();
+            await updateStats();
         } else {
             document.getElementById('loginErr').style.display = 'block';
         }
@@ -456,12 +456,34 @@
         document.getElementById('filter-subject').disabled = false;
     }
 
-    function getNotes() {
+    const API_PATH = '/notes';
+
+    function getLocalNotes() {
         return JSON.parse(localStorage.getItem('incloud_notes') || '[]');
     }
 
-    function saveNotes(notes) {
+    function saveLocalNotes(notes) {
         localStorage.setItem('incloud_notes', JSON.stringify(notes));
+    }
+
+    async function fetchNotesFromServer() {
+        try {
+            const res = await fetch(API_PATH);
+            if (!res.ok) throw new Error('Fetch failed');
+            return await res.json();
+        } catch (err) {
+            return null;
+        }
+    }
+
+    async function getNotes() {
+        const serverNotes = await fetchNotesFromServer();
+        if (serverNotes) return serverNotes;
+        return getLocalNotes();
+    }
+
+    async function saveNotes(notes) {
+        saveLocalNotes(notes);
     }
 
     function readFileAsDataURL(file) {
@@ -471,6 +493,38 @@
             reader.onerror = () => reject(reader.error);
             reader.readAsDataURL(file);
         });
+    }
+
+    async function postNoteToServer(note) {
+        try {
+            const res = await fetch(API_PATH, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(note)
+            });
+            return res.ok;
+        } catch (err) {
+            return false;
+        }
+    }
+
+    async function deleteNoteFromServer(id) {
+        try {
+            const res = await fetch(`${API_PATH}/${id}`, { method: 'DELETE' });
+            return res.ok;
+        } catch (err) {
+            return false;
+        }
+    }
+
+    async function clearServerNotes(subject) {
+        try {
+            const query = subject ? `?subject=${encodeURIComponent(subject)}` : '';
+            const res = await fetch(`${API_PATH}${query}`, { method: 'DELETE' });
+            return res.ok;
+        } catch (err) {
+            return false;
+        }
     }
 
     async function addNote() {
@@ -505,7 +559,6 @@
         }
         if (!valid) return;
 
-        const notes = getNotes();
         let noteLink = link;
         let fileName = null;
         let fileUpload = false;
@@ -516,7 +569,7 @@
             fileUpload = true;
         }
 
-        notes.push({
+        const newNote = {
             id: Date.now(),
             subject,
             unit,
@@ -526,8 +579,14 @@
             date: new Date().toLocaleDateString(),
             fileUpload,
             fileName
-        });
-        saveNotes(notes);
+        };
+
+        const savedOnServer = await postNoteToServer(newNote);
+        if (!savedOnServer) {
+            const notes = getLocalNotes();
+            notes.push(newNote);
+            saveLocalNotes(notes);
+        }
 
         document.getElementById('f-unit').value = '';
         titleEl.value = '';
@@ -536,35 +595,43 @@
         fileEl.value = '';
         if (!USERS[currentUser].subject) document.getElementById('f-subject').value = '';
 
-        renderNotes();
-        updateStats();
+        await renderNotes();
+        await updateStats();
         showToast('Note added successfully!');
     }
 
-    function deleteNote(id) {
-        saveNotes(getNotes().filter(n => n.id !== id));
-        renderNotes();
-        updateStats();
+    async function deleteNote(id) {
+        const deletedOnServer = await deleteNoteFromServer(id);
+        if (!deletedOnServer) {
+            const notes = getLocalNotes().filter(n => n.id !== id);
+            saveLocalNotes(notes);
+        }
+        await renderNotes();
+        await updateStats();
         showToast('Note deleted');
     }
 
-    function clearAll() {
+    async function clearAll() {
         if (!confirm('Delete ALL notes?')) return;
-        let notes = getNotes();
-        if (currentUser && USERS[currentUser].subject) {
-            notes = notes.filter(n => n.subject !== USERS[currentUser].subject);
-        } else {
-            notes = [];
+        const subject = currentUser && USERS[currentUser].subject ? USERS[currentUser].subject : null;
+        const clearedOnServer = await clearServerNotes(subject);
+        if (!clearedOnServer) {
+            let notes = getLocalNotes();
+            if (subject) {
+                notes = notes.filter(n => n.subject !== subject);
+            } else {
+                notes = [];
+            }
+            saveLocalNotes(notes);
         }
-        saveNotes(notes);
-        renderNotes();
-        updateStats();
+        await renderNotes();
+        await updateStats();
         showToast('Notes cleared');
     }
 
-    function renderNotes() {
+    async function renderNotes() {
         const filterSearch = document.getElementById('filter-search').value.toLowerCase();
-        let notes = getNotes();
+        let notes = await getNotes();
 
         if (currentUser && USERS[currentUser].subject) {
             notes = notes.filter(n => n.subject === USERS[currentUser].subject);
@@ -598,8 +665,8 @@
         `).join('');
     }
 
-    function updateStats() {
-        let notes = getNotes();
+    async function updateStats() {
+        let notes = await getNotes();
         if (currentUser && USERS[currentUser].subject) {
             notes = notes.filter(n => n.subject === USERS[currentUser].subject);
         }
@@ -609,14 +676,14 @@
         document.getElementById('stat-today').textContent = notes.filter(n => n.date === today).length;
     }
 
-    window.onload = function() {
+    window.onload = async function() {
         if (sessionStorage.getItem('adminLoggedIn') === 'true') {
             currentUser = sessionStorage.getItem('adminUser');
             document.getElementById('login-screen').style.display = 'none';
             document.getElementById('admin-panel').style.display = 'block';
             applyUserRestrictions(currentUser);
-            renderNotes();
-            updateStats();
+            await renderNotes();
+            await updateStats();
         }
     };
 
